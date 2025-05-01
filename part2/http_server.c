@@ -70,10 +70,13 @@ int main(int argc, char **argv) {
     }
     pthread_t threads[N_THREADS];
     for (int i = 0; i < N_THREADS; i++) {
-        pthread_create(&threads[i], NULL, worker_thread, NULL);
+        if (pthread_create(&threads[i], NULL, worker_thread, NULL) != 0) {
+            perror("pthread_create");
+            return 1;
+        }
     }
 
-    // 4) Restore signal mask so main thread catches SIGINT
+    // 4) Restore previous signal mask so main thread gets SIGINT
     sigprocmask(SIG_SETMASK, &prev, NULL);
 
     // 5) Setup listening socket
@@ -81,14 +84,39 @@ int main(int argc, char **argv) {
                               .ai_socktype = SOCK_STREAM,
                               .ai_flags = AI_PASSIVE }, *res;
     int server_fd;
-    if (getaddrinfo(NULL, port, &hints, &res) != 0 ||
-        (server_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0 ||
-        bind(server_fd, res->ai_addr, res->ai_addrlen) < 0 ||
-        listen(server_fd, LISTEN_QUEUE_LEN) < 0) {
-        perror("setup server");
+    if (getaddrinfo(NULL, port, &hints, &res) != 0) {
+        perror("getaddrinfo");
+        return 1;
+    }
+    if ((server_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
+        perror("socket");
+        freeaddrinfo(res);
+        return 1;
+    }
+
+    /* setsockopt to allow port reuse */
+    {
+        int opt = 1;
+        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+            perror("setsockopt");
+            close(server_fd);
+            freeaddrinfo(res);
+            return 1;
+        }
+    }
+
+    if (bind(server_fd, res->ai_addr, res->ai_addrlen) < 0) {
+        perror("bind");
+        close(server_fd);
+        freeaddrinfo(res);
         return 1;
     }
     freeaddrinfo(res);
+    if (listen(server_fd, LISTEN_QUEUE_LEN) < 0) {
+        perror("listen");
+        close(server_fd);
+        return 1;
+    }
 
     // 6) Main accept loop
     while (keep_going) {
@@ -104,13 +132,12 @@ int main(int argc, char **argv) {
         }
     }
 
-    // 7) Shutdown
+    // 7) Clean shutdown
     close(server_fd);
     connection_queue_shutdown(&queue);
     for (int i = 0; i < N_THREADS; i++) {
         pthread_join(threads[i], NULL);
     }
     connection_queue_free(&queue);
-
     return 0;
 }

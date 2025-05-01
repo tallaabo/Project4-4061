@@ -14,6 +14,9 @@ typedef struct {
     int write_idx;
     int shutdown;
     // TODO Add necessary thread synchronization primitives to this struct
+    pthread_mutex_t mutex;
+    pthread_cond_t not_empty;
+    pthread_cond_t not_full;
 } connection_queue_t;
 
 /*

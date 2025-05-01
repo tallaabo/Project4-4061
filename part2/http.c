@@ -86,7 +86,7 @@ int write_http_response(int fd, const char *resource_path) {
 
     char buf[BUFSIZE];
     int r;
-    
+
     while ((r = read(f, buf, sizeof(buf))) > 0) {
         if (write(fd, buf, r) != r) {
             perror("write body");
